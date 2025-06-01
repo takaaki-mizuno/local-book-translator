@@ -155,15 +155,17 @@ translation
         return text  # 翻訳に失敗した場合は元のテキストを返す
 
 
-def translate_markdown_chunks(markdown_content: str, model_name: str = "mlx-community/plamo-2-translate", 
-                            chunk_size: int = 1000) -> str:
+def translate_markdown_chunks(markdown_content: str, output_file_path: str, model_name: str = "mlx-community/plamo-2-translate", 
+                            chunk_size: int = 1000, start_line: int = 1) -> str:
     """
-    Markdownコンテンツを小さなチャンクに分割して翻訳する
+    Markdownコンテンツを小さなチャンクに分割して翻訳し、進行中にファイルに保存する
     
     Args:
         markdown_content: 翻訳するMarkdownコンテンツ
+        output_file_path: 出力ファイルのパス
         model_name: 使用するモデル名
         chunk_size: 一度に翻訳する文字数
+        start_line: 翻訳を開始する段落番号
         
     Returns:
         翻訳されたMarkdownコンテンツ
@@ -186,19 +188,60 @@ def translate_markdown_chunks(markdown_content: str, model_name: str = "mlx-comm
     
     # 段落単位で分割
     paragraphs = markdown_content.split('\n\n')
-    translated_paragraphs = []
+    total_paragraphs = len(paragraphs)
+    print(f"全体で {total_paragraphs} 段落が見つかりました")
+    print(f"段落 {start_line} から翻訳を開始します")
     
+    # 出力ファイルを初期化（開始行が1の場合のみ）
+    output_path = Path(output_file_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if start_line == 1:
+        # 最初から開始する場合はファイルを空にする
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("")
+    
+    translated_paragraphs = []
     current_chunk = ""
     chunk_count = 0
+    paragraph_count = 0
     
     for paragraph in paragraphs:
+        paragraph_count += 1
+        
+        # 開始行より前の段落はスキップ
+        if paragraph_count < start_line:
+            continue
+        
         # 現在のチャンクに段落を追加すると制限を超える場合
         if len(current_chunk) + len(paragraph) > chunk_size and current_chunk:
             # 現在のチャンクを翻訳
             chunk_count += 1
-            print(f"翻訳中... (チャンク {chunk_count}, 長さ: {len(current_chunk)}文字)")
+            
+            print(f"\n{'='*80}")
+            print(f"翻訳中... (チャンク {chunk_count}, 段落 {paragraph_count-1}, 長さ: {len(current_chunk)}文字)")
+            print(f"{'='*80}")
+            print("【翻訳前】:")
+            print(current_chunk)
+            print(f"{'-'*80}")
+            
             translated_chunk = translate_with_mlx_lm(current_chunk, model_name, model, tokenizer)
             translated_paragraphs.append(translated_chunk)
+            
+            print("【翻訳後】:")
+            print(translated_chunk)
+            print(f"{'='*80}")
+            
+            # 翻訳完了後すぐにファイルに追記保存
+            with open(output_path, 'a', encoding='utf-8') as f:
+                if start_line == 1 and chunk_count == 1:
+                    # 最初から開始で最初のチャンクの場合
+                    f.write(translated_chunk)
+                else:
+                    # 2番目以降のチャンクまたは途中から開始の場合は改行を追加
+                    f.write('\n\n' + translated_chunk)
+            print(f"チャンク {chunk_count} を保存しました")
+            
             current_chunk = paragraph
         else:
             # チャンクに段落を追加
@@ -210,9 +253,30 @@ def translate_markdown_chunks(markdown_content: str, model_name: str = "mlx-comm
     # 最後のチャンクを翻訳
     if current_chunk:
         chunk_count += 1
-        print(f"翻訳中... (最終チャンク {chunk_count}, 長さ: {len(current_chunk)}文字)")
+        
+        print(f"\n{'='*80}")
+        print(f"翻訳中... (最終チャンク {chunk_count}, 段落 {paragraph_count}, 長さ: {len(current_chunk)}文字)")
+        print(f"{'='*80}")
+        print("【翻訳前】:")
+        print(current_chunk)
+        print(f"{'-'*80}")
+        
         translated_chunk = translate_with_mlx_lm(current_chunk, model_name, model, tokenizer)
         translated_paragraphs.append(translated_chunk)
+        
+        print("【翻訳後】:")
+        print(translated_chunk)
+        print(f"{'='*80}")
+        
+        # 最後のチャンクも保存
+        with open(output_path, 'a', encoding='utf-8') as f:
+            if start_line == 1 and chunk_count == 1:
+                # 最初から開始で唯一のチャンクの場合
+                f.write(translated_chunk)
+            else:
+                # 最後のチャンクまたは途中から開始の場合は改行を追加
+                f.write('\n\n' + translated_chunk)
+        print(f"最終チャンク {chunk_count} を保存しました")
     
     return '\n\n'.join(translated_paragraphs)
 
@@ -243,6 +307,12 @@ def main() -> None:
         action="store_true",
         help="翻訳をスキップし、Markdown変換のみを行う"
     )
+    parser.add_argument(
+        "--start-line",
+        type=int,
+        default=1,
+        help="翻訳を開始する段落番号 (デフォルト: 1)"
+    )
     
     args = parser.parse_args()
     
@@ -266,19 +336,21 @@ def main() -> None:
             # 翻訳をスキップ
             final_content = markdown_content
             print("翻訳をスキップしました")
+            
+            # 出力ファイルに保存
+            output_path = Path(args.output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(final_content)
+            
+            print(f"完了! 結果を保存しました: {args.output_file}")
         else:
-            # 日本語に翻訳
+            # 日本語に翻訳（この過程でファイルに順次保存される）
             print("英語から日本語に翻訳中...")
-            final_content = translate_markdown_chunks(markdown_content, args.model)
-        
-        # 出力ファイルに保存
-        output_path = Path(args.output_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(final_content)
-        
-        print(f"完了! 結果を保存しました: {args.output_file}")
+            final_content = translate_markdown_chunks(markdown_content, args.output_file, args.model, args.start_line)
+            
+            print(f"完了! 翻訳結果を保存しました: {args.output_file}")
         
     except Exception as e:
         print(f"エラーが発生しました: {e}", file=sys.stderr)

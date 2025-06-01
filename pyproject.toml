@@ -1,0 +1,12 @@
+[project]
+name = "local-book-translator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12.1"
+dependencies = [
+    "beautifulsoup4>=4.13.4",
+    "markdownify>=1.1.0",
+    "mlx-lm>=0.24.1",
+    "numba>=0.61.2",
+]
